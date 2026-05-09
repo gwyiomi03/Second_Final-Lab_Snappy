@@ -39,6 +39,44 @@ The vote_queue table works as a message buffer similar to Google Pub/Sub. Votes 
 
 The processing layer is managed by worker.py, which continuously checks the queue for pending votes. It creates an idempotency key using the user_id and poll_id to avoid duplicate records, then stores valid votes in the votes table. After processing, messages are marked as processed or failed for possible retry. The votes table serves as the final storage for all valid votes.
 
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        EDGE LAYER                           │
+│                                                             │
+│   [Edge Node 1]   [Edge Node 2]   [Edge Node N]             │
+│   edge_node.py    edge_node.py    edge_node.py              │
+│   (Member 1)      (Member 2)      (Member N)                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP POST /vote
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   INGESTION LAYER                           │
+│                                                             │
+│              Flask API — app.py (:5000)                     │
+│         Validates payload → inserts to queue                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ INSERT (status: pending)
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│               SUPABASE (Cloud Backend)                      │
+│                                                             │
+│   ┌─────────────────────┐    ┌──────────────────────────┐   │
+│   │    vote_queue table │    │       votes table        │   │
+│   │  (acts as Pub/Sub)  │    │  (final persistent store)│   │
+│   │  status: pending /  │    │  idempotent upsert by    │   │
+│   │  processed / failed │    │  user_id + poll_id       │   │
+│   └──────────┬──────────┘    └──────────────────────────┘   │
+└──────────────┼──────────────────────────▲───────────────────┘
+               │ Poll pending rows        │ UPSERT processed vote
+               ▼                          │
+┌─────────────────────────────────────────────────────────────┐
+│                  PROCESSING LAYER                           │
+│                                                             │
+│              Worker Service — worker.py                     │
+│     Pulls pending → processes → upserts → acknowledges      │
+└─────────────────────────────────────────────────────────────┘
+```
+
 
 ### Component Mapping (GCP → Supabase)
 
