@@ -324,7 +324,11 @@ After full recovery, total votes in `vote_queue` (processed) should approximatel
 > *[Write your individual reflection here — discuss your experience with the edge nodes, what you observed during fault injection, challenges you faced, and what you learned about distributed systems.]*
 
 ### Rafi Panandigan (RafiSailal18)
-> *[Write your individual reflection here — discuss your experience with the edge nodes, what you observed during fault injection, challenges you faced, and what you learned about distributed systems.]*
+> Working on the distributed voting system helped me better understand how distributed systems work compared to regular sequential programs. Our group used Supabase instead of Google Cloud Platform because GCP required billing setup, making Supabase easier to use for the project.*
+
+> Through the implementation, I learned how components like the API, edge nodes, worker service, and database can work independently while still communicating through asynchronous processes. During testing, the system was still able to process queued votes after the worker service recovered, which showed the importance of fault tolerance and reliability*
+
+>  I also realized that debugging distributed systems is more challenging since errors can happen across different services at different times. Overall, the activity gave me a better appreciation of the benefits and challenges of distributed systems, especially in scalability, synchronization, and troubleshooting.*
 
 ---
 
