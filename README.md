@@ -29,14 +29,53 @@ The system is designed to remain functional even under partial failure — when 
 ## Architecture
 
 
-The system follows an event-driven pipeline composed of four layers: edge nodes, an ingestion API, a message queue, and persistent storage. Since Google Cloud Platform was not used, Supabase was adopted as the cloud backend, with each GCP component replaced by an equivalent implementation.
+The system uses an event-driven pipeline with four main parts: edge nodes, an API, a message queue, and storage. Since Google Cloud Platform was not used, Supabase was used as the cloud backend to replace similar GCP services.
 
-At the edge layer, each group member runs an independent instance of edge_node.py, which continuously generates synthetic vote data containing a unique user ID, poll ID, choice, and timestamp. Each instance is assigned a unique edge_id to distinguish it as a separate distributed source. Votes are transmitted to the cloud via HTTP POST requests, with retry logic to simulate unreliable network conditions.
+At the edge layer, each member runs an instance of edge_node.py that continuously generates sample vote data containing a user ID, poll ID, choice, and timestamp. Each node has a unique edge_id and sends votes to the API through HTTP requests.
 
-The ingestion layer is handled by a Flask API (app.py) running on localhost:5000, which serves as the entry point of the system — equivalent to a Cloud Run service. It receives incoming vote payloads, validates that all required fields are present, and inserts them into the vote_queue table in Supabase. The API is intentionally stateless and lightweight, performing no heavy processing or storage of its own.
-The vote_queue table acts as the message buffer, equivalent to Google Pub/Sub. Votes sit in this table with a status of pending until they are picked up by the worker. This decoupling is critical — it means the API and worker operate independently, and votes are never lost even if the worker goes offline.
+The ingestion layer is handled by a Flask API (app.py) running on localhost:5000. It receives and validates incoming votes, then stores them in the vote_queue table. This API is lightweight and only handles receiving requests.
 
-The processing layer is handled by worker.py, which continuously polls the vote_queue table for pending messages. For each vote, it constructs an idempotency key from the user_id and poll_id, then performs an upsert into the votes table — equivalent to Firestore — ensuring that duplicate messages result in only one record. Once processed, the queue item is marked as processed. If an error occurs, it is marked as failed, allowing it to be retried on the next polling cycle. The votes table serves as the final persistent storage layer where all valid, deduplicated votes are stored.
+The vote_queue table works as a message buffer similar to Google Pub/Sub. Votes remain in the queue with a pending status until processed by the worker. This setup allows the API and worker to run independently and prevents data loss if the worker stops.
+
+The processing layer is managed by worker.py, which continuously checks the queue for pending votes. It creates an idempotency key using the user_id and poll_id to avoid duplicate records, then stores valid votes in the votes table. After processing, messages are marked as processed or failed for possible retry. The votes table serves as the final storage for all valid votes.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        EDGE LAYER                           │
+│                                                             │
+│   [Edge Node 1]   [Edge Node 2]   [Edge Node N]             │
+│   edge_node.py    edge_node.py    edge_node.py              │
+│   (Member 1)      (Member 2)      (Member N)                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP POST /vote
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   INGESTION LAYER                           │
+│                                                             │
+│              Flask API — app.py (:5000)                     │
+│         Validates payload → inserts to queue                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ INSERT (status: pending)
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│               SUPABASE (Cloud Backend)                      │
+│                                                             │
+│   ┌─────────────────────┐    ┌──────────────────────────┐   │
+│   │    vote_queue table │    │       votes table        │   │
+│   │  (acts as Pub/Sub)  │    │  (final persistent store)│   │
+│   │  status: pending /  │    │  idempotent upsert by    │   │
+│   │  processed / failed │    │  user_id + poll_id       │   │
+│   └──────────┬──────────┘    └──────────────────────────┘   │
+└──────────────┼──────────────────────────▲───────────────────┘
+               │ Poll pending rows        │ UPSERT processed vote
+               ▼                          │
+┌─────────────────────────────────────────────────────────────┐
+│                  PROCESSING LAYER                           │
+│                                                             │
+│              Worker Service — worker.py                     │
+│     Pulls pending → processes → upserts → acknowledges      │
+└─────────────────────────────────────────────────────────────┘
+```
 
 
 ### Component Mapping (GCP → Supabase)
