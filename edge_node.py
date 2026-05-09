@@ -31,7 +31,7 @@ def run_edge_node():
     while True:
         vote = generate_vote()
         send_vote(vote)
-        # send_vote(vote) # intentional duplicate
+        send_vote(vote) # intentional duplicate
         time.sleep(random.uniform(1, 3))
 
 if __name__ == "__main__":
