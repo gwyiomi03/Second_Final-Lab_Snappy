@@ -5,14 +5,19 @@ import os, time
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
+processed_count = 0  # global counter
+
 def process_vote(queue_item):
+    global processed_count
     vote = queue_item["payload"]
     queue_id = queue_item["id"]
 
-    # Idempotency: doc_id = user_id + poll_id (prevents duplicate writes)
     doc_id = f"{vote['user_id']}_{vote['poll_id']}"
 
     try:
+        # Calculate latency
+        latency = time.time() - vote.get("time_created", time.time())
+
         # Store in votes table (upsert = idempotent write)
         supabase.table("votes").upsert({
             "id": doc_id,
@@ -26,7 +31,9 @@ def process_vote(queue_item):
 
         # Mark queue item as processed
         supabase.table("vote_queue").update({"status": "processed"}).eq("id", queue_id).execute()
-        print(f"Processed vote: {vote['user_id']} | Poll: {vote['poll_id']} | Choice: {vote['choice']}")
+        
+        processed_count += 1
+        print(f"Processed vote: {vote['user_id']} | Poll: {vote['poll_id']} | Choice: {vote['choice']} | Latency: {latency:.2f}s | Total: {processed_count}")
 
     except Exception as e:
         # Mark as failed — allows retry on next loop
